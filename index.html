@@ -58,6 +58,15 @@
   .err{color:var(--red); font-size:13px; margin-top:10px;}
   .badge{font-size:11px; padding:1px 7px; border-radius:20px; background:#eef1f6; color:var(--muted); margin-left:6px;}
   .note{font-size:12px; color:var(--muted); margin-top:14px; line-height:1.6;}
+  /* hero total */
+  .hero{display:none; margin:6px 0 18px; padding:22px 26px; border-radius:16px;
+    background:linear-gradient(135deg,#4472C4,#2f5597); color:#fff;
+    box-shadow:0 6px 20px rgba(47,85,151,.25);}
+  .hero.show{display:block;}
+  .hero .label{font-size:13px; opacity:.9; letter-spacing:.5px;}
+  .hero .val{font-size:44px; font-weight:800; line-height:1.1; margin-top:4px;}
+  .hero .val .unit{font-size:20px; font-weight:600; margin-left:8px; opacity:.92;}
+  .hero .meta{font-size:12.5px; opacity:.85; margin-top:8px;}
 </style>
 </head>
 <body>
@@ -72,6 +81,12 @@
     <input type="file" id="file" accept=".xls,.xlsx" hidden>
   </div>
   <div id="errbox" class="err"></div>
+
+  <div class="hero" id="hero">
+    <div class="label">총 합계량</div>
+    <div class="val"><span id="hero-val">-</span><span class="unit">㎖</span></div>
+    <div class="meta" id="hero-meta"></div>
+  </div>
 
   <div class="stats" id="stats"></div>
 
@@ -253,7 +268,7 @@ function render(){
     `<div class="stat"><div class="v">${MODEL.period||"-"}</div><div class="k">취급일자 범위</div></div>`+
     (unknownN?`<div class="stat" style="border-color:#f3b4ae"><div class="v" style="color:#d93025">${unknownN}</div><div class="k">용량기준 확인필요</div></div>`:"");
   document.getElementById("period").textContent=MODEL.period;
-  ["stats","btns","card"].forEach(id=>document.getElementById(id).classList.add("show"));
+  ["hero","stats","btns","card"].forEach(id=>document.getElementById(id).classList.add("show"));
   drop.style.display="none";
 }
 
@@ -267,6 +282,10 @@ function recalc(){
   });
   document.getElementById("tot-out").textContent=fmt(to);
   document.getElementById("tot-sum").innerHTML = ok? fmt(ts) : fmt(ts)+" <span style='font-weight:400;color:#d93025;font-size:11px'>(확인필요 제외)</span>";
+  document.getElementById("hero-val").textContent=fmt(ts);
+  document.getElementById("hero-meta").innerHTML = ok
+    ? `제품 ${MODEL.rows.length}종 · 폐기량 합 ${fmt(to)}`
+    : `제품 ${MODEL.rows.length}종 · 폐기량 합 ${fmt(to)} · <span style="color:#ffd9d5">용량기준 미입력 제외</span>`;
 }
 
 // ---- 내보내기 ----
@@ -286,7 +305,7 @@ document.getElementById("export").addEventListener("click",()=>{
 });
 document.getElementById("reset").addEventListener("click",()=>{
   MODEL=null; document.querySelector("#tbl tbody").innerHTML="";
-  ["stats","btns","card"].forEach(id=>document.getElementById(id).classList.remove("show"));
+  ["hero","stats","btns","card"].forEach(id=>document.getElementById(id).classList.remove("show"));
   drop.style.display=""; fileInput.value=""; errbox.textContent="";
 });
 document.getElementById("forget").addEventListener("click",()=>{
