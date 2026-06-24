@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>사용후 폐기량 집계기</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --blue:#4472C4; --blue-d:#2f5597; --yellow:#FFF2CC; --ink:#1f2937;
+    --line:#e3e8ef; --green:#0f9d58; --red:#d93025; --muted:#6b7280;
+  }
+  *{box-sizing:border-box;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Segoe UI",Arial,sans-serif;
+    margin:0; background:#f4f6f9; color:var(--ink);}
+  .wrap{max-width:1080px; margin:0 auto; padding:28px 20px 60px;}
+  h1{font-size:22px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin:0 0 22px;}
+  /* drop zone */
+  #drop{border:2px dashed #b9c2d0; border-radius:14px; background:#fff; padding:40px 20px;
+    text-align:center; transition:.18s; cursor:pointer;}
+  #drop.hover{border-color:var(--blue); background:#eef3fc;}
+  #drop .big{font-size:16px; font-weight:600;}
+  #drop .small{color:var(--muted); font-size:12.5px; margin-top:6px;}
+  #drop .icon{font-size:38px; margin-bottom:8px;}
+  .btns{margin:18px 0; display:none; gap:10px; flex-wrap:wrap;}
+  .btns.show{display:flex;}
+  button{font:inherit; border:0; border-radius:9px; padding:10px 16px; cursor:pointer; font-weight:600;}
+  .primary{background:var(--blue); color:#fff;}
+  .primary:hover{background:var(--blue-d);}
+  .ghost{background:#fff; color:var(--ink); border:1px solid var(--line);}
+  .ghost:hover{background:#f0f3f8;}
+  /* stats */
+  .stats{display:none; gap:12px; flex-wrap:wrap; margin:6px 0 18px;}
+  .stats.show{display:flex;}
+  .stat{background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 16px; min-width:140px;}
+  .stat .v{font-size:20px; font-weight:700;}
+  .stat .k{font-size:12px; color:var(--muted);}
+  /* table */
+  .card{background:#fff; border:1px solid var(--line); border-radius:14px; overflow:hidden; display:none;}
+  .card.show{display:block;}
+  .card h2{font-size:15px; margin:0; padding:14px 18px; border-bottom:1px solid var(--line);}
+  table{border-collapse:collapse; width:100%; font-size:13px;}
+  thead th{background:var(--blue); color:#fff; padding:10px 12px; text-align:left; position:sticky; top:0;}
+  th.num,td.num{text-align:right;}
+  th.ctr,td.ctr{text-align:center;}
+  tbody td{padding:8px 12px; border-bottom:1px solid #eef1f6;}
+  tbody tr:hover{background:#f7f9fd;}
+  .mult-in{width:70px; text-align:center; border:1px solid #cfd6e0; border-radius:6px; padding:5px 4px; font:inherit;}
+  td.src-db .mult-in{background:#e8f0fe;}
+  td.src-auto .mult-in{background:#e6f4ea;}
+  td.src-learned .mult-in{background:var(--yellow);}
+  td.src-unknown .mult-in{background:#fce8e6; border-color:var(--red);}
+  .srchbtn{margin-left:6px; background:none; border:0; cursor:pointer; font-size:14px; padding:2px;}
+  tfoot td{padding:11px 12px; font-weight:700; background:var(--yellow); border-top:2px solid var(--blue);}
+  .legend{display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:var(--muted); padding:10px 18px; border-top:1px solid var(--line);}
+  .legend i{display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:5px; vertical-align:-1px;}
+  .err{color:var(--red); font-size:13px; margin-top:10px;}
+  .badge{font-size:11px; padding:1px 7px; border-radius:20px; background:#eef1f6; color:var(--muted); margin-left:6px;}
+  .note{font-size:12px; color:var(--muted); margin-top:14px; line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>💊 사용후 폐기량 집계기</h1>
+  <p class="sub">마약류통합관리시스템 '사용후 폐기량 정보조회' 엑셀을 올리면 제품별로 합산하고 용량기준(㎖)을 곱해 총량을 계산합니다.</p>
+
+  <div id="drop">
+    <div class="icon">📂</div>
+    <div class="big">여기로 .xls / .xlsx 파일을 끌어다 놓거나 클릭</div>
+    <div class="small">원본 '사용후 폐기량 정보조회' 파일 그대로 올리면 됩니다</div>
+    <input type="file" id="file" accept=".xls,.xlsx" hidden>
+  </div>
+  <div id="errbox" class="err"></div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="btns" id="btns">
+    <button class="primary" id="export">⬇ 엑셀로 내보내기</button>
+    <button class="ghost" id="reset">초기화</button>
+    <button class="ghost" id="forget">저장된 용량기준 지우기</button>
+  </div>
+
+  <div class="card" id="card">
+    <h2>제품별 폐기량 요약 <span class="badge" id="period"></span></h2>
+    <div style="max-height:60vh; overflow:auto;">
+      <table id="tbl">
+        <thead><tr>
+          <th>제품명</th><th class="ctr">단위</th><th class="ctr">용량기준(㎖)</th>
+          <th class="num">폐기량 합(출량)</th><th class="num">합계(㎖)</th>
+        </tr></thead>
+        <tbody></tbody>
+        <tfoot><tr>
+          <td>총 합계</td><td></td><td></td>
+          <td class="num" id="tot-out">-</td><td class="num" id="tot-sum">-</td>
+        </tr></tfoot>
+      </table>
+    </div>
+    <div class="legend">
+      <span><i style="background:#e8f0fe"></i>내장 DB</span>
+      <span><i style="background:#e6f4ea"></i>이름에서 자동추출</span>
+      <span><i style="background:#FFF2CC"></i>직접입력·저장됨</span>
+      <span><i style="background:#fce8e6"></i>확인필요(🔍 검색)</span>
+    </div>
+  </div>
+
+  <p class="note">
+    합계 = 폐기량 합(앰플/바이알 개수) × 용량기준(1개당 ㎖). 용량기준 칸은 직접 수정할 수 있고, 수정값은 이 브라우저에 저장돼 다음에 같은 약품이 나오면 자동으로 채워집니다.<br>
+    새 향정의 용량기준 추정 순서: ① 내장 DB → ② 제품명 괄호의 ㎖/mL 자동추출 → ③ 둘 다 없으면 빨강 '확인필요'(🔍 버튼으로 약품 검색 후 입력).
+  </p>
+</div>
+
+<script>
+// ---- 내장 용량기준 DB (이름→㎖/단위) ----
+const KNOWN = {
+ "날페인주사10밀리그램(날부핀염산염) (1㎖)":1,
+ "레미바주1밀리그램(레미펜타닐염산염) (1.1㎎)":1,
+ "레미바주5밀리그램(레미펜타닐염산염) (5.53㎎)":5,
+ "명문염산페치딘주사 (50㎎)":1,
+ "바이파보주20밀리그램(레미마졸람베실산염) (20mg)":4,
+ "바이파보주50밀리그램(레미마졸람베실산염) (50mg)":10,
+ "부광미다졸람주사 (5㎖)":5,
+ "비씨모르핀황산염수화물주사10mg (10㎎)":1,
+ "비씨모르핀황산염수화물주사1mg/mL(바이알) (1mL)":1,
+ "비씨모르핀황산염수화물주사1mg/mL(바이알) (5mL)":5,
+ "삼진디아제팜주 (10㎎)":2,
+ "수펜탈주사50마이크로그람5ml10앰플 (5㎖)":5,
+ "아티반주사(로라제팜) (0.5㎖)":0.5,
+ "에토미데이트리푸로주 (10mL)":10,
+ "제일페노바르비탈주사액(페노바르비탈나트륨) (100㎎)":1,
+ "펜토탈소디움0.5그램주(치오펜탈나트륨) (0.5g)":20,
+ "포크랄시럽(포수클로랄) (5mL)":5,
+ "프레조폴엠시티1%주(프로포폴)(앰플) (15㎖)":15,
+ "프레조폴엠시티2%주(프로포폴)(바이알) (50mL)":50,
+ "하나구연산펜타닐주사(유리) (1㎖)":1,
+ "하나염산페치딘주사 (0.5㎖)":0.5,
+ "하나페노바르비탈정 (30㎎)":1,
+ "휴온스케타민염산염주사50밀리그램/밀리리터 (5㎖)":5
+};
+const LS_KEY = "yongryang_learned_v1";
+function loadLearned(){ try{return JSON.parse(localStorage.getItem(LS_KEY))||{};}catch(e){return {};} }
+function saveLearned(o){ try{localStorage.setItem(LS_KEY, JSON.stringify(o));}catch(e){} }
+let learned = loadLearned();
+
+// 제품명 괄호에서 부피(㎖/mL/cc) 추출
+function parseVolume(name){
+  // mg/mL 같은 농도 표기는 제외하고, '숫자+㎖|mL|ml|cc' 패턴만
+  const re = /(\d+(?:\.\d+)?)\s*(?:㎖|cc|mL|ml|ML)/g;
+  let m, cands=[];
+  while((m=re.exec(name))!==null){
+    // 바로 앞이 'mg/' 처럼 농도의 일부면 제외
+    const before = name.slice(Math.max(0,m.index-3), m.index);
+    if(/mg\/?$/.test(before)) continue;
+    cands.push(parseFloat(m[1]));
+  }
+  if(cands.length===0) return null;
+  // 보통 마지막 괄호값이 포장 단위 부피
+  return cands[cands.length-1];
+}
+function resolveMult(name){
+  if(learned[name]!=null) return {v:learned[name], src:"learned"};
+  if(KNOWN[name]!=null)   return {v:KNOWN[name],   src:"db"};
+  const vol = parseVolume(name);
+  if(vol!=null)           return {v:vol,           src:"auto"};
+  return {v:null, src:"unknown"};
+}
+
+const fmt = n => (n==null||isNaN(n)) ? "-" : n.toLocaleString("en-US",{minimumFractionDigits:3,maximumFractionDigits:3});
+const fmt0 = n => n.toLocaleString("ko-KR");
+
+let MODEL = null; // {rows:[{name,unit,out,mult,src}], period}
+
+// ---- 파일 처리 ----
+const drop=document.getElementById("drop"), fileInput=document.getElementById("file"),
+      errbox=document.getElementById("errbox");
+drop.addEventListener("click",()=>fileInput.click());
+["dragenter","dragover"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add("hover");}));
+["dragleave","drop"].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove("hover");}));
+drop.addEventListener("drop",ev=>{ if(ev.dataTransfer.files.length) handleFile(ev.dataTransfer.files[0]); });
+fileInput.addEventListener("change",ev=>{ if(ev.target.files.length) handleFile(ev.target.files[0]); });
+
+function handleFile(f){
+  errbox.textContent="";
+  const r=new FileReader();
+  r.onload=e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
+      buildModel(rows);
+    }catch(err){ errbox.textContent="파일을 읽지 못했습니다: "+err.message; }
+  };
+  r.readAsArrayBuffer(f);
+}
+
+function buildModel(rows){
+  const hr=rows.findIndex(r=>Array.isArray(r)&&r.some(c=>c!=null&&String(c).trim()==="제품명"));
+  if(hr<0){ errbox.textContent="'제품명' 열을 찾지 못했습니다. 올바른 사용후 폐기량 파일인지 확인하세요."; return; }
+  const H=rows[hr].map(c=>c==null?"":String(c).trim());
+  const pI=H.indexOf("제품명"), qI=H.indexOf("사용후폐기량"), uI=H.indexOf("단위"), dI=H.indexOf("취급일자");
+  if(pI<0||qI<0){ errbox.textContent="'제품명' 또는 '사용후폐기량' 열이 없습니다."; return; }
+  const agg={}; let dmin=null,dmax=null,total=0;
+  for(let i=hr+1;i<rows.length;i++){
+    const r=rows[i]; if(!r||r[pI]==null||String(r[pI]).trim()==="") continue;
+    const name=String(r[pI]).trim();
+    const q=parseFloat(String(r[qI]).replace(/,/g,""))||0;
+    const unit=uI>=0&&r[uI]!=null?String(r[uI]).trim():"";
+    if(!agg[name]) agg[name]={name,unit,out:0,n:0};
+    agg[name].out+=q; agg[name].n++; total++;
+    if(dI>=0&&r[dI]!=null){ const d=String(r[dI]); if(!dmin||d<dmin)dmin=d; if(!dmax||d>dmax)dmax=d; }
+  }
+  const list=Object.values(agg).sort((a,b)=>a.name.localeCompare(b.name,"ko"));
+  list.forEach(it=>{ const m=resolveMult(it.name); it.mult=m.v; it.src=m.src; });
+  MODEL={rows:list, period:(dmin?dmin+" ~ "+dmax:""), records:total};
+  render();
+}
+
+function render(){
+  const tb=document.querySelector("#tbl tbody"); tb.innerHTML="";
+  MODEL.rows.forEach((it,idx)=>{
+    const tr=document.createElement("tr");
+    const sum = (it.mult!=null)? it.out*it.mult : null;
+    tr.innerHTML=`<td>${it.name}</td><td class="ctr">${it.unit}</td>`+
+      `<td class="ctr src-${it.src}"><input class="mult-in" data-i="${idx}" type="number" step="any" value="${it.mult!=null?it.mult:""}">`+
+      (it.src==="unknown"?`<button class="srchbtn" title="약품 검색" data-q="${encodeURIComponent(it.name)}">🔍</button>`:"")+
+      `</td>`+
+      `<td class="num">${fmt(it.out)}</td><td class="num sumcell">${sum!=null?fmt(sum):"<span style='color:#d93025'>?</span>"}</td>`;
+    tb.appendChild(tr);
+  });
+  // 이벤트
+  tb.querySelectorAll(".mult-in").forEach(inp=>{
+    inp.addEventListener("input",e=>{
+      const i=+e.target.dataset.i; const v=e.target.value===""?null:parseFloat(e.target.value);
+      MODEL.rows[i].mult=v;
+      if(v!=null){ learned[MODEL.rows[i].name]=v; saveLearned(learned);
+        const td=e.target.closest("td"); td.className="ctr src-learned"; }
+      recalc();
+    });
+  });
+  tb.querySelectorAll(".srchbtn").forEach(b=>{
+    b.addEventListener("click",e=>{
+      const q=decodeURIComponent(e.target.dataset.q);
+      window.open("https://www.google.com/search?q="+encodeURIComponent(q+" 첨부문서 용량 mL"),"_blank");
+    });
+  });
+  recalc();
+  // stats
+  const s=document.getElementById("stats");
+  const unknownN=MODEL.rows.filter(r=>r.mult==null).length;
+  s.innerHTML=
+    `<div class="stat"><div class="v">${fmt0(MODEL.records)}</div><div class="k">총 기록 수</div></div>`+
+    `<div class="stat"><div class="v">${MODEL.rows.length}</div><div class="k">제품 수</div></div>`+
+    `<div class="stat"><div class="v">${MODEL.period||"-"}</div><div class="k">취급일자 범위</div></div>`+
+    (unknownN?`<div class="stat" style="border-color:#f3b4ae"><div class="v" style="color:#d93025">${unknownN}</div><div class="k">용량기준 확인필요</div></div>`:"");
+  document.getElementById("period").textContent=MODEL.period;
+  ["stats","btns","card"].forEach(id=>document.getElementById(id).classList.add("show"));
+  drop.style.display="none";
+}
+
+function recalc(){
+  let to=0,ts=0,ok=true;
+  document.querySelectorAll("#tbl tbody tr").forEach((tr,i)=>{
+    const it=MODEL.rows[i]; to+=it.out;
+    const cell=tr.querySelector(".sumcell");
+    if(it.mult!=null){ const sum=it.out*it.mult; ts+=sum; cell.textContent=fmt(sum); }
+    else { cell.innerHTML="<span style='color:#d93025'>?</span>"; ok=false; }
+  });
+  document.getElementById("tot-out").textContent=fmt(to);
+  document.getElementById("tot-sum").innerHTML = ok? fmt(ts) : fmt(ts)+" <span style='font-weight:400;color:#d93025;font-size:11px'>(확인필요 제외)</span>";
+}
+
+// ---- 내보내기 ----
+document.getElementById("export").addEventListener("click",()=>{
+  const aoa=[["제품명","단위","용량기준(㎖)","폐기량 합(출량)","합계(㎖)"]];
+  let to=0,ts=0;
+  MODEL.rows.forEach(it=>{
+    const sum=it.mult!=null?it.out*it.mult:null;
+    aoa.push([it.name,it.unit,it.mult,Number(it.out.toFixed(3)),sum!=null?Number(sum.toFixed(3)):null]);
+    to+=it.out; if(sum!=null)ts+=sum;
+  });
+  aoa.push(["총 합계","","",Number(to.toFixed(3)),Number(ts.toFixed(3))]);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws["!cols"]=[{wch:46},{wch:8},{wch:12},{wch:18},{wch:14}];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"요약");
+  XLSX.writeFile(wb,"사용후폐기량_요약.xlsx");
+});
+document.getElementById("reset").addEventListener("click",()=>{
+  MODEL=null; document.querySelector("#tbl tbody").innerHTML="";
+  ["stats","btns","card"].forEach(id=>document.getElementById(id).classList.remove("show"));
+  drop.style.display=""; fileInput.value=""; errbox.textContent="";
+});
+document.getElementById("forget").addEventListener("click",()=>{
+  if(confirm("이 브라우저에 저장된 용량기준 수정값을 모두 지울까요?")){
+    learned={}; saveLearned(learned); alert("삭제했습니다. 파일을 다시 올리면 내장 기준으로 계산됩니다.");
+  }
+});
+</script>
+</body>
+</html>
